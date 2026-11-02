@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>信号沙盒 · Signal Sandbox</title>
+<style>
+:root{--bg:#14171c;--panel:#1d2229;--rack:#232a33;--line:#3a4450;--txt:#d7dee6;--dim:#8a97a6;--acc:#4fd1c5;--hi:#ff5d5d;--lo:#4d8dff;--gold:#e6c07b}
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+html,body{height:100%;background:var(--bg);color:var(--txt);overflow:hidden;font-size:13px}
+#top{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+#top b{color:var(--acc);font-size:15px;margin-right:6px}
+button{background:#2c343e;color:var(--txt);border:1px solid var(--line);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px}
+button:hover{background:#39434f}
+button.on{background:var(--acc);color:#10201e;border-color:var(--acc)}
+#top .sep{width:1px;height:20px;background:var(--line)}
+#top label{color:var(--dim)}
+#stepInfo{color:var(--gold);min-width:90px}
+#wrap{display:flex;height:calc(100% - 45px - 190px)}
+#palette{width:150px;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:8px 6px;flex:none}
+#palette h3{font-size:11px;color:var(--dim);margin:8px 4px 4px;font-weight:600}
+.pbtn{display:block;width:100%;text-align:left;margin-bottom:4px;padding:6px 8px;border-radius:4px;border:1px solid var(--line);background:#2c343e;cursor:pointer;color:var(--txt);font-size:12px}
+.pbtn:hover{border-color:var(--acc)}
+.pbtn small{color:var(--dim);float:right}
+#rack{flex:1;position:relative;overflow:auto;background:var(--rack);background-image:linear-gradient(#28303a 1px,transparent 1px),linear-gradient(90deg,#28303a 1px,transparent 1px);background-size:24px 24px}
+#canvas{position:relative;width:2600px;height:1800px}
+#cables{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+#cables path{pointer-events:stroke;cursor:pointer}
+.mod{position:absolute;width:150px;background:linear-gradient(#39434f,#2e3742);border:1px solid #4a5663;border-radius:6px;box-shadow:0 3px 8px rgba(0,0,0,.45);user-select:none;z-index:2}
+.mod .hd{padding:4px 8px;font-weight:700;font-size:12px;color:var(--gold);border-bottom:1px solid #4a5663;cursor:move;display:flex;justify-content:space-between;align-items:center;white-space:nowrap}
+.mod .hd .del{cursor:pointer;color:var(--dim);font-weight:400;padding:0 2px}
+.mod .hd .del:hover{color:var(--hi)}
+.mod .body{padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.mod .row{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.port{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);position:relative}
+.jack{width:14px;height:14px;border-radius:50%;border:2px solid #5a6673;background:#1a1f26;cursor:crosshair;flex:none;position:relative}
+.jack.in{margin-left:-15px}
+.jack.out{margin-right:-15px}
+.jack .led{position:absolute;inset:2px;border-radius:50%;background:#555}
+.jack:hover{border-color:var(--acc)}
+.pval{min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--txt);font-size:11px}
+.mod .prm{display:flex;flex-direction:column;gap:3px;margin-top:2px}
+.mod .prm label{font-size:10px;color:var(--dim);display:flex;align-items:center;gap:4px}
+.mod .prm input[type=range]{width:100%;accent-color:var(--acc);height:14px}
+.mod .prm select{background:#1d2229;color:var(--txt);border:1px solid var(--line);border-radius:3px;font-size:11px;flex:1}
+.mod .prm .rv{min-width:30px;text-align:right;color:var(--gold)}
+.mod.src .hd{color:var(--acc)}
+.mod.out .hd{color:var(--hi)}
+#scope{height:190px;background:var(--panel);border-top:1px solid var(--line);position:relative}
+#scope canvas{width:100%;height:100%;display:block}
+#legend{position:absolute;top:6px;left:10px;display:flex;gap:14px;font-size:11px;color:var(--dim);flex-wrap:wrap;max-width:90%}
+#legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle;background:var(--c)}
+#help{position:fixed;right:14px;bottom:200px;background:rgba(20,23,28,.92);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--dim);max-width:300px;line-height:1.7;z-index:50;display:none}
+#help b{color:var(--txt)}
+</style>
+</head>
+<body>
+<div id="top">
+  <b>信号沙盒</b>
+  <button id="playBtn">▶ 播放</button>
+  <button id="stepBtn">⏭ 单步</button>
+  <button id="resetBtn">↺ 复位</button>
+  <label>速度</label><input type="range" id="speed" min="40" max="600" value="220" style="width:90px;accent-color:var(--acc)">
+  <span id="stepInfo">t = 0</span>
+  <div class="sep"></div>
+  <button id="helpBtn">? 帮助</button>
+  <button id="clearBtn">清空机架</button>
+  <span style="color:var(--dim)">信号范围 -100 ~ +100，逻辑判定 &gt;0 为真</span>
+</div>
+<div id="wrap">
+  <div id="palette"></div>
+  <div id="rack"><div id="canvas">
+    <svg id="cables"></svg>
+    <svg id="tmp" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible"></svg>
+  </div></div>
+</div>
+<div id="scope"><canvas id="scopeCv"></canvas><div id="legend"></div></div>
+<div id="help">
+  <b>玩法</b><br>
+  · 左侧点击按钮添加模块，拖标题栏移动，点 × 删除<br>
+  · 从输出孔(右侧)拖线到输入孔(左侧)完成接线；双击线缆删除<br>
+  · 信号源 SRC 可切“手动”(滑条给值)或“自动”(波形+速度)<br>
+  · 播放/单步推进时间，每个孔旁实时显示当前电压<br>
+  · 底部示波器显示各 SRC / OUT 通道历史波形<br>
+  · 组合示例：SRC→ATT→VCA→OUT；CLK→SH.TRIG 做采样；AND+NOT 搭逻辑；MULT 一分三<br>
+  · 电路自动保存(localStorage)
+</div>
+<script>
+"use strict";
+const clamp=v=>Math.max(-100,Math.min(100,v));
+const hashRand=s=>{let x=Math.sin(s*127.1+311.7)*43758.5453;return (x-Math.floor(x))*200-100;};
+// ---------- 模块定义 ----------
+const DEFS={
+ SRC:{label:"信号源 SRC",cls:"src",ins:[],outs:["OUT"],stateful:false,
+   params:[{k:"mode",t:"sel",opts:["手动","自动"]},{k:"manual",t:"rng",min:-100,max:100,show:n=>n.p.mode==="手动"},
+           {k:"wave",t:"sel",opts:["正弦","锯齿","方波","三角","随机","噪声信号"],show:n=>n.p.mode==="自动"},
+           {k:"speed",t:"rng",min:1,max:20,show:n=>n.p.mode==="自动"}],
+   def:{mode:"手动",manual:50,wave:"正弦",speed:4},
+   eval(n,ins,t){ if(n.p.mode==="手动")return[clamp(+n.p.manual)];
+     const sp=n.p.speed,ph=t*sp/50;
+     switch(n.p.wave){
+       case"正弦":return[Math.round(100*Math.sin(ph*2*Math.PI))];
+       case"锯齿":return[Math.round(((ph%1)*200)-100)];
+       case"方波":return[(ph%1)<0.5?100:-100];
+       case"三角":{const f=ph%1;return[Math.round(f<0.5?(-100+400*f):(100-400*(f-0.5)))]};
+       case"随机":return[Math.round(hashRand(Math.floor(t*sp/25)+n.id*97))];
+       case"噪声信号":{ // 复现「电台广播系统」关卡：正常 0~70，偶发 78~100 噪声尖峰
+         const seed=Math.floor(t*sp/25)+n.id*97;
+         const base=(hashRand(seed)+100)/2*0.7;
+         const nz=hashRand(seed+31337);
+         return[Math.round(nz>55?78+(nz-55)/45*22:base)];}
+     }}},
+ CLK:{label:"时钟 CLK",ins:[],outs:["OUT"],stateful:false,
+   params:[{k:"period",t:"rng",min:2,max:64}],def:{period:8},
+   eval(n,ins,t){return[(t%(+n.p.period))===0?100:0];}},
+ AND:{label:"与门 AND",ins:["A","B"],outs:["Y"],stateful:false,eval(n,i){return[i[0]>0&&i[1]>0?100:0];}},
+ OR:{label:"或门 OR",ins:["A","B"],outs:["Y"],stateful:false,eval(n,i){return[i[0]>0||i[1]>0?100:0];}},
+ NOT:{label:"非门 NOT",ins:["A"],outs:["Y"],stateful:false,eval(n,i){return[i[0]>0?0:100];}},
+ XOR:{label:"异或 XOR",ins:["A","B"],outs:["Y"],stateful:false,eval(n,i){return[(i[0]>0)!==(i[1]>0)?100:0];}},
+ ATT:{label:"衰减器 ATT",ins:["IN"],outs:["OUT"],stateful:false,
+   params:[{k:"k",t:"rng",min:-100,max:100}],def:{k:80},
+   eval(n,i){return[clamp(Math.round(i[0]*n.p.k/100))];}},
+ BIAS:{label:"偏置 BIAS",ins:["IN"],outs:["OUT"],stateful:false,
+   params:[{k:"off",t:"rng",min:-100,max:100}],def:{off:20},
+   eval(n,i){return[clamp(i[0]+(+n.p.off))];}},
+ VCA:{label:"压控 VCA",ins:["IN","CV"],outs:["OUT"],stateful:false,
+   eval(n,i){return[clamp(Math.round(i[0]*Math.max(0,i[1])/100))];}},
+ MIX:{label:"混音 MIX",ins:["A","B","C","D"],outs:["OUT"],stateful:false,
+   eval(n,i){return[clamp(i[0]+i[1]+i[2]+i[3])];}},
+ MULT:{label:"分配 MULT",ins:["IN"],outs:["X","Y","Z"],stateful:false,
+   eval(n,i){return[i[0],i[0],i[0]];}},
+ MAX:{label:"最大值 MAX",ins:["A","B","C","D"],outs:["OUT"],stateful:false,
+   eval(n,i){return[Math.max(...i)];}},
+ MIN:{label:"最小值 MIN",ins:["A","B","C","D"],outs:["OUT"],stateful:false,
+   eval(n,i){return[Math.min(...i)];}},
+ SH:{label:"采样保持 S&H",ins:["IN","TRIG"],outs:["OUT"],stateful:true,
+   eval(n,i){ if(i[1]>0&&n.st.prevTrig<=0)n.st.hold=i[0]; n.st.prevTrig=i[1]; return[n.st.hold];}},
+ DELAY:{label:"延迟 DELAY",ins:["IN"],outs:["OUT"],stateful:true,
+   params:[{k:"d",t:"rng",min:0,max:64}],def:{d:8},
+   eval(n,i){const d=+n.p.d,H=n.st.hist;const v=H.length>d?H[H.length-1-d]:0;return[clamp(v)];}},
+ SEQ:{label:"序列器 SEQ",ins:["TRIG"],outs:["OUT"],stateful:true,
+   params:[{k:"v0",t:"rng",min:-100,max:100},{k:"v1",t:"rng",min:-100,max:100},{k:"v2",t:"rng",min:-100,max:100},{k:"v3",t:"rng",min:-100,max:100}],
+   def:{v0:80,v1:-40,v2:20,v3:-90},
+   eval(n,i){ if(i[0]>0&&n.st.prevTrig<=0)n.st.idx=(n.st.idx+1)%4; n.st.prevTrig=i[0]; return[clamp(+n.p["v"+n.st.idx])];}},
+ SW:{label:"顺序开关 SW",ins:["IN","TRIG"],outs:["1","2","3","4"],stateful:true,
+   eval(n,i){ if(i[1]>0&&n.st.prevTrig<=0)n.st.idx=(n.st.idx+1)%4; n.st.prevTrig=i[1];
+     const o=[0,0,0,0];o[n.st.idx]=i[0];return o;}},
+ OUT:{label:"输出 OUT",cls:"out",ins:["IN"],outs:[],stateful:false,eval(n){return[];}},
+};
+const GROUPS=[
+ ["信号",[["SRC","信号源"],["CLK","时钟"],["OUT","输出"]]],
+ ["逻辑门",[["AND","与"],["OR","或"],["NOT","非"],["XOR","异或"]]],
+ ["模拟处理",[["ATT","衰减器"],["BIAS","偏置"],["VCA","压控放大"],["MIX","混音"],["MAX","最大值"],["MIN","最小值"]]],
+ ["时序/路由",[["SH","采样保持"],["DELAY","信号延迟"],["SEQ","序列器"],["SW","顺序开关"],["MULT","分配器"]]],
+];
+// ---------- 状态 ----------
+let nodes=[],cables=[],nextId=1,t=0,playing=false,history=[];
+const $=s=>document.querySelector(s);
+const rack=$("#rack"),canvasEl=$("#canvas"),svg=$("#cables"),tmpsvg=$("#tmp");
+let saveT=null;
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem("tss-sandbox",JSON.stringify({nodes:nodes.map(n=>{const{el,...r}=n;return r;}),cables,nextId,t}));}catch(e){}},250);}
+function load(){try{const d=JSON.parse(localStorage.getItem("tss-sandbox"));if(d&&d.nodes&&d.nodes.length){nodes=d.nodes.map(n=>{const{el,...r}=n;return r;});cables=d.cables||[];nextId=d.nextId||nodes.length+1;t=d.t||0;return true;}}catch(e){}return false;}
+function addNode(type,x,y){const def=DEFS[type];const n={id:nextId++,type,x:x??(rack.scrollLeft+220+Math.random()*200),y:y??(rack.scrollTop+120+Math.random()*150),p:{...(def.def||{})},outs:def.ins&&def.outs?Array(def.outs.length).fill(0):[],st:{hold:0,prevTrig:0,idx:0,hist:[]}};
+ nodes.push(n);buildMod(n);recompute();save();return n;}
+// ---------- DOM 构建 ----------
+function ledColor(v){const a=Math.min(1,Math.abs(v)/100);if(Math.abs(v)<1)return"rgba(120,130,140,.5)";return v>0?`rgba(255,93,93,${0.25+0.75*a})`:`rgba(77,141,255,${0.25+0.75*a})`;}
+function buildMod(n){
+ const def=DEFS[n.type];const el=document.createElement("div");el.className="mod "+(def.cls||"");el.style.left=n.x+"px";el.style.top=n.y+"px";el.dataset.id=n.id;
+ const hd=document.createElement("div");hd.className="hd";hd.innerHTML=`<span>${def.label} #${n.id}</span><span class="del" title="删除">✕</span>`;el.appendChild(hd);
+ const body=document.createElement("div");body.className="body";
+ if(def.ins.length){const r=document.createElement("div");r.className="row";r.style.flexDirection="column";r.style.alignItems="stretch";
+  def.ins.forEach((pn,i)=>{const p=document.createElement("div");p.className="port";p.innerHTML=`<span class="jack in" data-n="${n.id}" data-p="${i}" data-d="in"><span class="led"></span></span><span>${pn}</span><span class="pval" id="pv-${n.id}-i${i}"></span>`;r.appendChild(p);});
+  body.appendChild(r);}
+ const prm=document.createElement("div");prm.className="prm";
+ (def.params||[]).forEach(pd=>{const lb=document.createElement("label");lb.dataset.pk=pd.k;
+  if(pd.t==="rng"){lb.innerHTML=`<span>${pd.k}</span><input type="range" min="${pd.min}" max="${pd.max}" value="${n.p[pd.k]}" data-k="${pd.k}"><span class="rv">${n.p[pd.k]}</span>`;}
+  else{lb.innerHTML=`<span>${pd.k==="mode"?"模式":pd.k==="wave"?"波形":pd.k}</span><select data-k="${pd.k}">${pd.opts.map(o=>`<option${o===n.p[pd.k]?" selected":""}>${o}</option>`).join("")}</select>`;}
+  prm.appendChild(lb);});
+ body.appendChild(prm);
+ if(def.outs.length){const r=document.createElement("div");r.className="row";r.style.flexDirection="column";r.style.alignItems="stretch";
+  def.outs.forEach((pn,i)=>{const p=document.createElement("div");p.className="port";p.style.justifyContent="flex-end";
+   p.innerHTML=`<span class="pval" id="pv-${n.id}-o${i}">0</span><span>${pn}</span><span class="jack out" data-n="${n.id}" data-p="${i}" data-d="out"><span class="led"></span></span>`;r.appendChild(p);});
+  body.appendChild(r);}
+ el.appendChild(body);canvasEl.appendChild(el);n.el=el;
+ // 拖动
+ hd.addEventListener("mousedown",e=>{if(e.target.classList.contains("del"))return;e.preventDefault();
+  const sx=e.clientX-n.x,sy=e.clientY-n.y;
+  const mv=e=>{n.x=Math.max(0,e.clientX-sx);n.y=Math.max(0,e.clientY-sy);el.style.left=n.x+"px";el.style.top=n.y+"px";drawCables();};
+  const up=()=>{document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up);save();};
+  document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);});
+ hd.querySelector(".del").addEventListener("click",()=>{cables=cables.filter(c=>c.a!==n.id&&c.b!==n.id);nodes=nodes.filter(x=>x!==n);el.remove();recompute();drawCables();save();});
+ // 参数
+ prm.addEventListener("input",e=>{const k=e.target.dataset.k;if(!k)return;n.p[k]=e.target.type==="range"?+e.target.value:e.target.value;
+  const rv=e.target.parentElement.querySelector(".rv");if(rv)rv.textContent=e.target.value;recompute();save();});
+ prm.addEventListener("change",()=>{updateParamVisibility(n);recompute();save();});
+ updateParamVisibility(n);
+ return el;
+}
+function updateParamVisibility(n){const def=DEFS[n.type];n.el.querySelectorAll(".prm label").forEach((lb,i)=>{const pd=def.params&&def.params[i];if(pd&&pd.show)lb.style.display=pd.show(n)?"":"none";});}
+// ---------- 接线 ----------
+let drag=null; // {fromNode,fromPort,dir}
+canvasEl.addEventListener("mousedown",e=>{const j=e.target.closest(".jack");if(!j)return;e.preventDefault();
+ drag={n:+j.dataset.n,p:+j.dataset.p,dir:j.dataset.d};
+ const mv=ev=>{const [x1,y1]=jackXY(drag.n,drag.p,drag.dir);const [x2,y2]=ptInCanvas(ev);
+  tmpsvg.innerHTML=`<path d="${bez(x1,y1,x2,y2)}" stroke="#4fd1c5" stroke-width="2.5" fill="none" opacity=".8"/>`;};
+ const up=ev=>{document.removeEventListener("mousemove",mv);tmpsvg.innerHTML="";
+  const el=document.elementFromPoint(ev.clientX,ev.clientY);const j2=el&&el.closest(".jack");
+  if(j2){const n2=+j2.dataset.n,p2=+j2.dataset.p,d2=j2.dataset.d;
+   if(drag.dir==="out"&&d2==="in"){cables=cables.filter(c=>!(c.b===n2&&c.bp===p2));cables.push({a:drag.n,ap:drag.p,b:n2,bp:p2});}
+   else if(drag.dir==="in"&&d2==="out"){cables=cables.filter(c=>!(c.b===drag.n&&c.bp===drag.p));cables.push({a:+j2.dataset.n,ap:+j2.dataset.p,b:drag.n,bp:drag.p});}}
+  drag=null;recompute();drawCables();save();};
+ document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);});
+function rectOf(el){return el.getBoundingClientRect();}
+function rackRect(){return canvasEl.getBoundingClientRect();}
+function jackXY(nid,port,dir){const n=nodes.find(x=>x.id===nid);if(!n)return[0,0];
+ const j=n.el.querySelector(`.jack.${dir}[data-p="${port}"]`);if(!j)return[0,0];
+ const r=rectOf(j),rr=rackRect();return[r.left-rr.left+r.width/2,r.top-rr.top+r.height/2];}
+function ptInCanvas(ev){const rr=rackRect();return[ev.clientX-rr.left+0,ev.clientY-rr.top+0];}
+function bez(x1,y1,x2,y2){const dx=Math.max(40,Math.abs(x2-x1)*0.5);return`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;}
+function cableStroke(v){return Math.abs(v)<1?"#5a6673":v>0?"#ff5d5d":"#4d8dff";}
+function drawCables(){const ps=svg.children;
+ if(ps.length!==cables.length){svg.innerHTML=cables.map((c,i)=>{const[x1,y1]=jackXY(c.a,c.ap,"out");const[x2,y2]=jackXY(c.b,c.bp,"in");
+  return`<path data-i="${i}" d="${bez(x1,y1,x2,y2)}" stroke="${cableStroke(valOf(c.a,c.ap))}" stroke-width="2.5" fill="none" opacity=".85"/>`;}).join("");return;}
+ for(let i=0;i<cables.length;i++){const c=cables[i];const[x1,y1]=jackXY(c.a,c.ap,"out");const[x2,y2]=jackXY(c.b,c.bp,"in");
+  const p=ps[i];const d=bez(x1,y1,x2,y2);if(p.getAttribute("d")!==d)p.setAttribute("d",d);
+  const s=cableStroke(valOf(c.a,c.ap));if(p.getAttribute("stroke")!==s)p.setAttribute("stroke",s);}}
+svg.addEventListener("dblclick",e=>{const p=e.target.closest("path");if(!p)return;cables.splice(+p.dataset.i,1);recompute();drawCables();save();});
+// ---------- 仿真 ----------
+function inVal(nid,port,usePrev){const c=cables.find(x=>x.b===nid&&x.bp===port);if(!c)return 0;
+ const n=nodes.find(x=>x.id===c.a);if(!n)return 0;const v=usePrev?(n.prevOuts?n.prevOuts[c.ap]:0):n.outs[c.ap];return v??0;}
+function valOf(nid,port){const n=nodes.find(x=>x.id===nid);return n?(n.outs[port]??0):0;}
+function recompute(){ // 稳态求解（组合逻辑迭代，含反馈）
+ nodes.forEach(n=>n.prevOuts=n.outs.slice());
+ for(let it=0;it<8;it++){nodes.forEach(n=>{const def=DEFS[n.type];if(def.stateful)return;
+  const ins=def.ins.map((_,i)=>inVal(n.id,i,false));n.outs=def.eval(n,ins,t).map(v=>Math.round(v));});}
+ // stateful 节点用上一拍快照
+ nodes.forEach(n=>{const def=DEFS[n.type];if(!def.stateful)return;
+  const ins=def.ins.map((_,i)=>inVal(n.id,i,true));n.outs=def.eval(n,ins,t).map(v=>Math.round(v));});
+ refreshUI();}
+function step(){ // 推进一拍
+ nodes.forEach(n=>{const def=DEFS[n.type];if(n.type==="DELAY"){const v=inVal(n.id,0,true);n.st.hist.push(v);if(n.st.hist.length>200)n.st.hist.shift();}});
+ t++;recompute();
+ // 记录示波器历史
+ history.push({src:nodes.filter(n=>n.type==="SRC").map(n=>n.outs[0]),out:nodes.filter(n=>n.type==="OUT").map(n=>inVal(n.id,0,false))});
+ if(history.length>400)history.shift();
+ drawScope();$("#stepInfo").textContent="t = "+t;}
+function refreshUI(){
+ nodes.forEach(n=>{const def=DEFS[n.type];
+  def.outs.forEach((_,i)=>{const e=document.getElementById(`pv-${n.id}-o${i}`);if(e&&e.textContent!=n.outs[i])e.textContent=n.outs[i];});
+  def.ins.forEach((_,i)=>{const v=inVal(n.id,i,false);const e=document.getElementById(`pv-${n.id}-i${i}`);if(e&&e.textContent!=v)e.textContent=v;});});
+ nodes.forEach(n=>{n.el.querySelectorAll(".jack").forEach(j=>{const led=j.querySelector(".led");
+  const v=j.classList.contains("out")?valOf(+j.dataset.n,+j.dataset.p):inVal(+j.dataset.n,+j.dataset.p,false);
+  const c=ledColor(v);if(led._c!==c){led._c=c;led.style.background=c;}});});
+ drawCables();}
+// ---------- 示波器 ----------
+const cv=$("#scopeCv"),ctx=cv.getContext("2d");
+const CH_COLORS=["#4fd1c5","#e6c07b","#c084fc","#f97316","#22c55e","#f43f5e","#60a5fa","#a3e635"];
+function drawScope(){const W=cv.clientWidth,H=cv.clientHeight;
+ if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;}
+ ctx.clearRect(0,0,W,H);ctx.strokeStyle="#2b333d";ctx.lineWidth=1;
+ for(let g=1;g<4;g++){const y=H*g/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+ ctx.strokeStyle="#3a4450";ctx.beginPath();ctx.moveTo(0,H/2);ctx.lineTo(W,H/2);ctx.stroke();
+ const N=Math.max(history.length,1),xw=W/Math.max(N,240);
+ const chans=[];
+ const srcN=nodes.filter(n=>n.type==="SRC"),outN=nodes.filter(n=>n.type==="OUT");
+ srcN.forEach((n,i)=>chans.push({name:"SRC#"+n.id,color:CH_COLORS[i%8],get:h=>h.src[i]}));
+ outN.forEach((n,i)=>chans.push({name:"OUT#"+n.id,color:CH_COLORS[(srcN.length+i+4)%8],get:h=>h.out[i]}));
+ chans.forEach((ch,ci)=>{ctx.strokeStyle=ch.color;ctx.lineWidth=2;ctx.beginPath();
+  history.forEach((h,i)=>{const v=ch.get(h);if(v==null)return;const x=i*xw,y=H/2-(v/100)*(H/2-8);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.stroke();});
+ $("#legend").innerHTML=chans.map(ch=>`<span style="--c:${ch.color}">${ch.name}</span>`).join("")||'<span style="--c:#555">添加 SRC / OUT 模块后显示波形</span>';}
+// ---------- 顶栏 ----------
+let lastTick=0,slowStreak=0;
+function setPlay(p){playing=p;$("#playBtn").textContent=p?"⏸ 暂停":"▶ 播放";$("#playBtn").classList.toggle("on",p);if(p){lastTick=performance.now();slowStreak=0;}}
+function raf(now){if(playing){const iv=Math.max(16,601-+$("#speed").value);if(now-lastTick>=iv){lastTick=now;const t0=performance.now();step();
+ if(performance.now()-t0>iv){if(++slowStreak>=5){setPlay(false);$("#stepInfo").textContent="已自动暂停：仿真负载过重";}else $("#stepInfo").textContent="t = "+t+" ⚠负载高";}
+ else slowStreak=0;}}requestAnimationFrame(raf);}
+requestAnimationFrame(raf);
+$("#playBtn").onclick=()=>setPlay(!playing);
+$("#stepBtn").onclick=()=>{setPlay(false);step();};
+$("#resetBtn").onclick=()=>{setPlay(false);t=0;history=[];nodes.forEach(n=>{n.st={hold:0,prevTrig:0,idx:0,hist:[]};n.outs=Array(DEFS[n.type].outs.length).fill(0);});recompute();drawScope();save();};
+
+$("#clearBtn").onclick=()=>{if(!confirm("清空所有模块和连线？"))return;nodes.forEach(n=>n.el.remove());nodes=[];cables=[];history=[];t=0;$("#stepInfo").textContent="t = 0";recompute();drawScope();save();};
+$("#helpBtn").onclick=()=>{const h=$("#help");h.style.display=h.style.display==="none"?"block":"none";};
+// ---------- 初始化 ----------
+GROUPS.forEach(([g,items])=>{const h=document.createElement("h3");h.textContent=g;$("#palette").appendChild(h);
+ items.forEach(([type,name])=>{const b=document.createElement("button");b.className="pbtn";b.innerHTML=`${DEFS[type].label.split(" ")[0]} <small>${name}</small>`;b.onclick=()=>addNode(type);$("#palette").appendChild(b);});});
+function clearAll(){nodes.forEach(n=>n.el.remove());nodes=[];cables=[];history=[];t=0;$("#stepInfo").textContent="t = 0";}
+// 「电台广播系统」关卡示例：SRC(噪声信号) → MULT → {VCA.IN; BIAS(-75)→MAX(空孔=0)→NOT→VCA.CV} → OUT
+function presetRadio(){
+ clearAll();
+ const s=addNode("SRC",60,120),m=addNode("MULT",270,130),bi=addNode("BIAS",470,40),mx=addNode("MAX",660,40),nt=addNode("NOT",850,50),vc=addNode("VCA",1030,120),o=addNode("OUT",1260,140);
+ s.p.mode="自动";s.p.wave="噪声信号";s.p.speed=8;bi.p.off=-75;
+ [s,bi].forEach(n=>{updateParamVisibility(n);n.el.querySelectorAll(".prm select").forEach(sel=>sel.value=n.p[sel.dataset.k]);n.el.querySelectorAll(".prm input[type=range]").forEach(rg=>{rg.value=n.p[rg.dataset.k];rg.parentElement.querySelector(".rv").textContent=n.p[rg.dataset.k];});});
+ cables.push({a:s.id,ap:0,b:m.id,bp:0},{a:m.id,ap:0,b:vc.id,bp:0},{a:m.id,ap:1,b:bi.id,bp:0},
+  {a:bi.id,ap:0,b:mx.id,bp:0},{a:mx.id,ap:0,b:nt.id,bp:0},{a:nt.id,ap:0,b:vc.id,bp:1},{a:vc.id,ap:0,b:o.id,bp:0});
+ recompute();drawCables();save();
+}
+// 「回声延迟器」关卡2：CLK → MIX.A；MIX → MULT → {OUT; DELAY(d=8) → ATT(k=50) → MIX.B} 反馈回声
+function presetEcho(){
+ clearAll();
+ const c=addNode("CLK",60,120),mx=addNode("MIX",270,110),mu=addNode("MULT",490,120),o=addNode("OUT",700,50),dl=addNode("DELAY",700,170),at=addNode("ATT",910,180);
+ c.p.period=16;dl.p.d=8;at.p.k=50;
+ [c,dl,at].forEach(n=>{n.el.querySelectorAll(".prm input[type=range]").forEach(rg=>{rg.value=n.p[rg.dataset.k];rg.parentElement.querySelector(".rv").textContent=n.p[rg.dataset.k];});});
+ cables.push({a:c.id,ap:0,b:mx.id,bp:0},{a:mx.id,ap:0,b:mu.id,bp:0},{a:mu.id,ap:0,b:o.id,bp:0},{a:mu.id,ap:1,b:dl.id,bp:0},{a:dl.id,ap:0,b:at.id,bp:0},{a:at.id,ap:0,b:mx.id,bp:1});
+ recompute();drawCables();save();
+}
+if(!load())presetRadio();
+nodes.forEach(n=>{if(!n.el)buildMod(n);});
+const LEVELS=[["电台广播系统","关卡1 噪声门",presetRadio],["回声延迟器","关卡2 反馈",presetEcho]];
+LEVELS.slice().reverse().forEach(([name,tag,fn])=>{const pb=document.createElement("button");pb.className="pbtn";pb.style.borderColor="var(--gold)";pb.innerHTML=`${name} <small>${tag}</small>`;pb.title="载入官方关卡示例电路（会清空当前机架）";pb.onclick=()=>{if(nodes.length&&!confirm("将清空当前机架并载入示例电路，继续？"))return;setPlay(false);fn();t=0;step();setPlay(true);};$("#palette").prepend(pb);});
+recompute();step();setPlay(true);
+window.addEventListener("resize",drawScope);
+</script>
+</body>
+</html>
