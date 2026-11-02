@@ -51,6 +51,15 @@ button.on{background:var(--acc);color:#10201e;border-color:var(--acc)}
 #legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle;background:var(--c)}
 #help{position:fixed;right:14px;bottom:200px;background:rgba(20,23,28,.92);border:1px solid var(--line);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--dim);max-width:300px;line-height:1.7;z-index:50;display:none}
 #help b{color:var(--txt)}
+#task{position:fixed;right:14px;top:52px;width:340px;max-height:70vh;overflow:auto;background:rgba(20,23,28,.96);border:1px solid var(--gold);border-radius:6px;padding:12px 14px;font-size:12px;line-height:1.7;z-index:45;display:none}
+#task h4{color:var(--gold);font-size:14px;margin-bottom:6px}
+#task .goal{color:var(--txt);margin-bottom:8px}
+#task .mods{color:var(--dim);margin-bottom:10px}
+#task .mods b{color:var(--acc)}
+#task .tbtns{display:flex;gap:8px;flex-wrap:wrap}
+#palette .lvls{border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px}
+.lvlbtn{border-color:var(--gold)!important}
+.lvlbtn.cur,.pbtn.cur{background:var(--gold);color:#241c07;border-color:var(--gold)}
 </style>
 </head>
 <body>
@@ -82,8 +91,10 @@ button.on{background:var(--acc);color:#10201e;border-color:var(--acc)}
   · 播放/单步推进时间，每个孔旁实时显示当前电压<br>
   · 底部示波器显示各 SRC / OUT 通道历史波形<br>
   · 组合示例：SRC→ATT→VCA→OUT；CLK→SH.TRIG 做采样；AND+NOT 搭逻辑；MULT 一分三<br>
+  · 左上角可选《信号法则》官方关卡：只显示任务要求与可用模块，卡住了再点“显示参考答案”<br>
   · 电路自动保存(localStorage)
 </div>
+<div id="task"></div>
 <script>
 "use strict";
 const clamp=v=>Math.max(-100,Math.min(100,v));
@@ -153,12 +164,12 @@ const GROUPS=[
  ["时序/路由",[["SH","采样保持"],["DELAY","信号延迟"],["SEQ","序列器"],["SW","顺序开关"],["MULT","分配器"]]],
 ];
 // ---------- 状态 ----------
-let nodes=[],cables=[],nextId=1,t=0,playing=false,history=[];
+let nodes=[],cables=[],nextId=1,t=0,playing=false,history=[],curLevel=-1;
 const $=s=>document.querySelector(s);
 const rack=$("#rack"),canvasEl=$("#canvas"),svg=$("#cables"),tmpsvg=$("#tmp");
 let saveT=null;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem("tss-sandbox",JSON.stringify({nodes:nodes.map(n=>{const{el,...r}=n;return r;}),cables,nextId,t}));}catch(e){}},250);}
-function load(){try{const d=JSON.parse(localStorage.getItem("tss-sandbox"));if(d&&d.nodes&&d.nodes.length){nodes=d.nodes.map(n=>{const{el,...r}=n;return r;});cables=d.cables||[];nextId=d.nextId||nodes.length+1;t=d.t||0;return true;}}catch(e){}return false;}
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem("tss-sandbox",JSON.stringify({nodes:nodes.map(n=>{const{el,...r}=n;return r;}),cables,nextId,t,lvl:curLevel}));}catch(e){}},250);}
+function load(){try{const d=JSON.parse(localStorage.getItem("tss-sandbox"));if(d&&d.nodes&&d.nodes.length){nodes=d.nodes.map(n=>{const{el,...r}=n;return r;});cables=d.cables||[];nextId=d.nextId||nodes.length+1;t=d.t||0;curLevel=(typeof d.lvl==="number")?d.lvl:-1;return true;}}catch(e){}return false;}
 function addNode(type,x,y){const def=DEFS[type];const n={id:nextId++,type,x:x??(rack.scrollLeft+220+Math.random()*200),y:y??(rack.scrollTop+120+Math.random()*150),p:{...(def.def||{})},outs:def.ins&&def.outs?Array(def.outs.length).fill(0):[],st:{hold:0,prevTrig:0,idx:0,hist:[]}};
  nodes.push(n);buildMod(n);recompute();save();return n;}
 // ---------- DOM 构建 ----------
@@ -281,9 +292,7 @@ $("#resetBtn").onclick=()=>{setPlay(false);t=0;history=[];nodes.forEach(n=>{n.st
 
 $("#clearBtn").onclick=()=>{if(!confirm("清空所有模块和连线？"))return;nodes.forEach(n=>n.el.remove());nodes=[];cables=[];history=[];t=0;$("#stepInfo").textContent="t = 0";recompute();drawScope();save();};
 $("#helpBtn").onclick=()=>{const h=$("#help");h.style.display=h.style.display==="none"?"block":"none";};
-// ---------- 初始化 ----------
-GROUPS.forEach(([g,items])=>{const h=document.createElement("h3");h.textContent=g;$("#palette").appendChild(h);
- items.forEach(([type,name])=>{const b=document.createElement("button");b.className="pbtn";b.innerHTML=`${DEFS[type].label.split(" ")[0]} <small>${name}</small>`;b.onclick=()=>addNode(type);$("#palette").appendChild(b);});});
+// ---------- 关卡系统 ----------
 function clearAll(){nodes.forEach(n=>n.el.remove());nodes=[];cables=[];history=[];t=0;$("#stepInfo").textContent="t = 0";}
 // 「电台广播系统」关卡示例：SRC(噪声信号) → MULT → {VCA.IN; BIAS(-75)→MAX(空孔=0)→NOT→VCA.CV} → OUT
 function presetRadio(){
@@ -295,7 +304,7 @@ function presetRadio(){
   {a:bi.id,ap:0,b:mx.id,bp:0},{a:mx.id,ap:0,b:nt.id,bp:0},{a:nt.id,ap:0,b:vc.id,bp:1},{a:vc.id,ap:0,b:o.id,bp:0});
  recompute();drawCables();save();
 }
-// 「回声延迟器」关卡2：CLK → MIX.A；MIX → MULT → {OUT; DELAY(d=8) → ATT(k=50) → MIX.B} 反馈回声
+// 「回声延迟器」演示：CLK → MIX.A；MIX → MULT → {OUT; DELAY(d=8) → ATT(k=50) → MIX.B} 反馈回声
 function presetEcho(){
  clearAll();
  const c=addNode("CLK",60,120),mx=addNode("MIX",270,110),mu=addNode("MULT",490,120),o=addNode("OUT",700,50),dl=addNode("DELAY",700,170),at=addNode("ATT",910,180);
@@ -304,10 +313,103 @@ function presetEcho(){
  cables.push({a:c.id,ap:0,b:mx.id,bp:0},{a:mx.id,ap:0,b:mu.id,bp:0},{a:mu.id,ap:0,b:o.id,bp:0},{a:mu.id,ap:1,b:dl.id,bp:0},{a:dl.id,ap:0,b:at.id,bp:0},{a:at.id,ap:0,b:mx.id,bp:1});
  recompute();drawCables();save();
 }
-if(!load())presetRadio();
+// 通用参考答案加载：n=节点[{t,x,y,p}]，c=线缆[节点下标,出孔,节点下标,入孔]
+function syncControls(list){list.forEach(n=>{updateParamVisibility(n);
+ n.el.querySelectorAll(".prm select").forEach(sel=>sel.value=n.p[sel.dataset.k]);
+ n.el.querySelectorAll(".prm input[type=range]").forEach(rg=>{rg.value=n.p[rg.dataset.k];rg.parentElement.querySelector(".rv").textContent=n.p[rg.dataset.k];});});}
+function loadSol(sol){clearAll();
+ const ns=sol.n.map(d=>{const n=addNode(d.t,d.x,d.y);if(d.p)Object.assign(n.p,d.p);return n;});
+ cables=[];
+ sol.c.forEach(w=>cables.push({a:ns[w[0]].id,ap:w[1],b:ns[w[2]].id,bp:w[3]}));
+ syncControls(ns);recompute();drawCables();save();}
+const X=[60,290,520,750,980,1210,1440];
+// 《信号法则》(The Signal State) 官方主线 1-23（★为可选关）+ 附加演示
+const LEVELS=[
+ {name:"1 诊断性测试",mods:["SRC","OUT"],goal:"把信号源直接接到输出孔：OUT 入口电压应始终等于 SRC 输出。切换 SRC 的手动/自动模式验证。",
+  sol:{n:[{t:"SRC",x:X[0],y:120,p:{mode:"手动",manual:50}},{t:"OUT",x:X[1],y:130}],c:[[0,0,1,0]]}},
+ {name:"2 发电机",mods:["CLK","OUT"],goal:"使用时钟 CLK 让输出在 0 与 100 之间周期性跳变（方波节拍）。",
+  sol:{n:[{t:"CLK",x:X[0],y:120,p:{period:8}},{t:"OUT",x:X[1],y:130}],c:[[0,0,1,0]]}},
+ {name:"3 断路器",mods:["SRC","CLK","VCA","OUT"],goal:"SRC 为断路器开关（手动模式）：>0 时放行时钟信号到输出，=0 时输出恒为 0。",
+  sol:{n:[{t:"CLK",x:X[0],y:60,p:{period:8}},{t:"SRC",x:X[0],y:220,p:{mode:"手动",manual:100}},{t:"VCA",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"4 农舍灯光",mods:["SRC","NOT","OUT"],goal:"日夜反转：光敏信号 ≤0（夜晚）输出 100 开灯，否则输出 0。",
+  sol:{n:[{t:"SRC",x:X[0],y:120,p:{mode:"自动",wave:"正弦",speed:4}},{t:"NOT",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,1,0],[1,0,2,0]]}},
+ {name:"5 VCA测试",mods:["SRC","VCA","OUT"],goal:"体会幅度控制：OUT = IN × CV ÷ 100。手动调节 CV 信号源观察输出变化。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"正弦",speed:6}},{t:"SRC",x:X[0],y:220,p:{mode:"手动",manual:60}},{t:"VCA",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"6 谷仓灯光",mods:["SRC","MAX","OUT"],goal:"两路传感器信号，输出其中较大的值。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"三角",speed:3}},{t:"SRC",x:X[0],y:220,p:{mode:"自动",wave:"正弦",speed:7}},{t:"MAX",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"7 固件编程器",mods:["CLK","SEQ","OUT"],goal:"序列器在每个时钟触发沿输出下一个预设电压，4 个值循环输出。",
+  sol:{n:[{t:"CLK",x:X[0],y:120,p:{period:8}},{t:"SEQ",x:X[1],y:120,p:{v0:80,v1:-40,v2:20,v3:-90}},{t:"OUT",x:X[2],y:130}],c:[[0,0,1,0],[1,0,2,0]]}},
+ {name:"8 功率调节器",mods:["SRC","ATT","BIAS","OUT"],goal:"把输入范围 -100~100 压缩到 0~100：OUT = IN÷2 + 50。",
+  sol:{n:[{t:"SRC",x:X[0],y:120,p:{mode:"自动",wave:"正弦",speed:5}},{t:"ATT",x:X[1],y:120,p:{k:50}},{t:"BIAS",x:X[2],y:120,p:{off:50}},{t:"OUT",x:X[3],y:130}],c:[[0,0,1,0],[1,0,2,0],[2,0,3,0]]}},
+ {name:"9 逻辑测试",mods:["SRC","XOR","OUT"],goal:"两个开关状态不同时输出 100，相同时输出 0。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"手动",manual:100}},{t:"SRC",x:X[0],y:220,p:{mode:"手动",manual:0}},{t:"XOR",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"10 最大值最小值测试",mods:["SRC","MIN","OUT"],goal:"输出两路信号中较小的值。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"正弦",speed:5}},{t:"SRC",x:X[0],y:220,p:{mode:"自动",wave:"锯齿",speed:3}},{t:"MIN",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"11 灌溉系统",mods:["SRC","CLK","SH","OUT"],goal:"每个时钟节拍对湿度信号采样一次并保持，直到下一次触发。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"正弦",speed:8}},{t:"CLK",x:X[0],y:220,p:{period:16}},{t:"SH",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"12 灌溉分配电路",mods:["SRC","MULT","OUT"],goal:"把一路水压信号同时送往 3 个灌区（三个 OUT 都应有值）。",
+  sol:{n:[{t:"SRC",x:X[0],y:140,p:{mode:"自动",wave:"三角",speed:4}},{t:"MULT",x:X[1],y:120},{t:"OUT",x:X[2],y:40},{t:"OUT",x:X[2],y:150},{t:"OUT",x:X[2],y:260}],c:[[0,0,1,0],[1,0,2,0],[1,1,3,0],[1,2,4,0]]}},
+ {name:"13 灌溉控制器",mods:["SRC","CLK","SW","OUT"],goal:"顺序开关按触发时钟依次把水送往 1~4 通道，每次触发切换一路。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"手动",manual:80}},{t:"CLK",x:X[0],y:220,p:{period:8}},{t:"SW",x:X[1],y:120},{t:"OUT",x:X[2],y:20},{t:"OUT",x:X[2],y:110},{t:"OUT",x:X[2],y:200},{t:"OUT",x:X[2],y:290}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0],[2,1,4,0],[2,2,5,0],[2,3,6,0]]}},
+ {name:"14 电台广播系统",mods:["SRC","MULT","BIAS","MAX","NOT","VCA","OUT"],goal:"信号为 0~70 且偶发 ≥78 噪声尖峰。要求：正常时信号原样输出，出现噪声时输出 0（噪声门）。",
+  sol:()=>presetRadio()},
+ {name:"15 电台放大电路 ★可选",mods:["SRC","MULT","MIX","ATT","BIAS","VCA","OUT"],goal:"把信号幅度翻倍（OUT = 2×IN），但禁止使用任何逻辑门。",
+  sol:{n:[{t:"SRC",x:X[0],y:120,p:{mode:"自动",wave:"正弦",speed:5}},{t:"MULT",x:X[1],y:120},{t:"MIX",x:X[2],y:120},{t:"OUT",x:X[3],y:130}],c:[[0,0,1,0],[1,0,2,0],[1,1,2,1],[2,0,3,0]]}},
+ {name:"16 最大最小值重设计 ★可选",mods:["SRC","ATT","MAX","OUT"],goal:"不用 MIN 模块实现最小值选择：MIN(a,b) = -MAX(-a,-b)。ATT 系数设 -100 即可取反。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"正弦",speed:5}},{t:"SRC",x:X[0],y:240,p:{mode:"自动",wave:"锯齿",speed:3}},{t:"ATT",x:X[1],y:60,p:{k:-100}},{t:"ATT",x:X[1],y:240,p:{k:-100}},{t:"MAX",x:X[2],y:120},{t:"ATT",x:X[3],y:120,p:{k:-100}},{t:"OUT",x:X[4],y:130}],c:[[0,0,2,0],[1,0,3,0],[2,0,4,0],[3,0,4,1],[4,0,5,0],[5,0,6,0]]}},
+ {name:"17 电台时钟系统",mods:["CLK","SEQ","OUT"],goal:"把 8 拍时钟二分频：输出按每次触发交替 100/0/100/0，形成周期 16 的节拍。",
+  sol:{n:[{t:"CLK",x:X[0],y:120,p:{period:8}},{t:"SEQ",x:X[1],y:120,p:{v0:100,v1:0,v2:100,v3:0}},{t:"OUT",x:X[2],y:130}],c:[[0,0,1,0],[1,0,2,0]]}},
+ {name:"18 电台内存缓冲区",mods:["SRC","CLK","SH","OUT"],goal:"每次时钟触发锁存当前音频值并保持，直到下一次触发。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"自动",wave:"正弦",speed:4}},{t:"CLK",x:X[0],y:220,p:{period:24}},{t:"SH",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"19 拖拉机安全系统",mods:["SRC","AND","OUT"],goal:"只有钥匙 A 与座椅传感 B 同时接通才启动引擎（输出 100），任一断开输出 0。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"手动",manual:100}},{t:"SRC",x:X[0],y:220,p:{mode:"手动",manual:100}},{t:"AND",x:X[1],y:120},{t:"OUT",x:X[2],y:130}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0]]}},
+ {name:"20 拖拉机音乐播放器 ★可选",mods:["CLK","SEQ","OUT"],goal:"播放 4 音符循环：80、40、-40、-80，每个时钟节拍切换一个音符。",
+  sol:{n:[{t:"CLK",x:X[0],y:120,p:{period:8}},{t:"SEQ",x:X[1],y:120,p:{v0:80,v1:40,v2:-40,v3:-80}},{t:"OUT",x:X[2],y:130}],c:[[0,0,1,0],[1,0,2,0]]}},
+ {name:"21 拖拉机齿轮系统 ★可选",mods:["SRC","CLK","SW","OUT"],goal:"挡位指示：恒定 100V 依次出现在 4 个挡位输出通道，每个时钟节拍换一挡。",
+  sol:{n:[{t:"SRC",x:X[0],y:60,p:{mode:"手动",manual:100}},{t:"CLK",x:X[0],y:220,p:{period:16}},{t:"SW",x:X[1],y:120},{t:"OUT",x:X[2],y:20},{t:"OUT",x:X[2],y:110},{t:"OUT",x:X[2],y:200},{t:"OUT",x:X[2],y:290}],c:[[0,0,2,0],[1,0,2,1],[2,0,3,0],[2,1,4,0],[2,2,5,0],[2,3,6,0]]}},
+ {name:"22 无人机寻路",mods:["SRC","AND","OR","NOT","OUT"],goal:"起飞许可 = 遥控信号 A 良好，且（无障碍 B 为假 或 备用路线 C 可用）：OUT = A ∧ (¬B ∨ C)。",
+  sol:{n:[{t:"SRC",x:X[0],y:40,p:{mode:"手动",manual:100}},{t:"SRC",x:X[0],y:160,p:{mode:"手动",manual:0}},{t:"SRC",x:X[0],y:280,p:{mode:"手动",manual:100}},{t:"NOT",x:X[1],y:160},{t:"OR",x:X[2],y:200},{t:"AND",x:X[3],y:120},{t:"OUT",x:X[4],y:130}],c:[[1,0,3,0],[3,0,4,0],[2,0,4,1],[0,0,5,0],[4,0,5,1],[5,0,6,0]]}},
+ {name:"23 无人机处理器",mods:["SRC","CLK","MIX","SH","VCA","OUT"],goal:"混合两路传感器信号，经时钟采样保持，最后用控制电压 C 门控：C>0 时才有输出。",
+  sol:{n:[{t:"SRC",x:X[0],y:40,p:{mode:"自动",wave:"正弦",speed:6}},{t:"SRC",x:X[0],y:200,p:{mode:"自动",wave:"三角",speed:4}},{t:"MIX",x:X[1],y:100},{t:"CLK",x:X[1],y:260,p:{period:16}},{t:"SH",x:X[2],y:140},{t:"SRC",x:X[2],y:320,p:{mode:"手动",manual:100}},{t:"VCA",x:X[3],y:180},{t:"OUT",x:X[4],y:190}],c:[[0,0,2,0],[1,0,2,1],[2,0,4,0],[3,0,4,1],[4,0,6,0],[5,0,6,1],[6,0,7,0]]}},
+ {name:"附加 回声延迟演示",mods:["SRC","CLK","MIX","MULT","DELAY","ATT","OUT"],goal:"演示电路：时钟经延迟+衰减反馈回路，产生逐次减弱的回声。",
+  sol:()=>presetEcho()},
+];
+function buildPalette(){
+ const pal=$("#palette");pal.innerHTML="";
+ const box=document.createElement("div");box.className="lvls";
+ const h0=document.createElement("h3");h0.textContent="🎮 官方关卡 · 信号法则";box.appendChild(h0);
+ const sb=document.createElement("button");sb.className="pbtn"+(curLevel<0?" cur":"");sb.textContent="🧪 沙盒模式（全部模块）";sb.onclick=()=>selectLevel(-1);box.appendChild(sb);
+ LEVELS.forEach((L,i)=>{const b=document.createElement("button");b.className="pbtn lvlbtn"+(curLevel===i?" cur":"");b.textContent=L.name;b.onclick=()=>selectLevel(i);box.appendChild(b);});
+ pal.appendChild(box);
+ const allowed=curLevel<0?null:new Set(LEVELS[curLevel].mods);
+ GROUPS.forEach(([g,items])=>{const its=items.filter(it=>!allowed||allowed.has(it[0]));if(!its.length)return;
+  const h=document.createElement("h3");h.textContent=g;pal.appendChild(h);
+  its.forEach(([type,name])=>{const b=document.createElement("button");b.className="pbtn";b.innerHTML=`${DEFS[type].label.split(" ")[0]} <small>${name}</small>`;b.onclick=()=>addNode(type);pal.appendChild(b);});});
+}
+function selectLevel(i){
+ if(i===curLevel){showTask();return;}
+ if(i>=0&&nodes.length&&!confirm("载入关卡将清空当前机架，继续？"))return;
+ curLevel=i;
+ if(i>=0){clearAll();recompute();drawCables();}
+ buildPalette();showTask();save();
+}
+function showTask(){
+ const tp=$("#task");
+ if(curLevel<0){tp.style.display="none";return;}
+ const L=LEVELS[curLevel];
+ tp.innerHTML=`<h4>${L.name}</h4><div class="goal">📋 任务要求：${L.goal}</div><div class="mods">可用模块：<b>${L.mods.map(m=>DEFS[m].label).join("、")}</b></div><div class="tbtns"><button id="ansBtn">📖 显示参考答案</button><button id="retryBtn">↺ 清空重做</button><button id="closeTask">✕ 收起</button></div>`;
+ tp.style.display="block";
+ $("#ansBtn").onclick=()=>{if((nodes.length||cables.length)&&!confirm("载入参考答案将替换当前电路，继续？"))return;setPlay(false);
+  if(typeof L.sol==="function")L.sol();else loadSol(L.sol);
+  t=0;history=[];step();setPlay(true);};
+ $("#retryBtn").onclick=()=>{clearAll();recompute();drawCables();save();};
+ $("#closeTask").onclick=()=>{tp.style.display="none";};
+}
+// ---------- 初始化 ----------
+load();
 nodes.forEach(n=>{if(!n.el)buildMod(n);});
-const LEVELS=[["电台广播系统","关卡1 噪声门",presetRadio],["回声延迟器","关卡2 反馈",presetEcho]];
-LEVELS.slice().reverse().forEach(([name,tag,fn])=>{const pb=document.createElement("button");pb.className="pbtn";pb.style.borderColor="var(--gold)";pb.innerHTML=`${name} <small>${tag}</small>`;pb.title="载入官方关卡示例电路（会清空当前机架）";pb.onclick=()=>{if(nodes.length&&!confirm("将清空当前机架并载入示例电路，继续？"))return;setPlay(false);fn();t=0;step();setPlay(true);};$("#palette").prepend(pb);});
+buildPalette();
+if(curLevel>=0)showTask();
 recompute();step();setPlay(true);
 window.addEventListener("resize",drawScope);
 </script>
